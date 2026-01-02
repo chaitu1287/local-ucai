@@ -1,0 +1,32 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Claude
+.claude/
+
+# Environment variables
+.env 
+.env.local
+
+# Logs
+logs/
+
+# Verdict Logs
+.verdict/
+
+# Ruff 
+.ruff_cache/
+
+# Supabase (Local Development)
+supabase/
+
+# Temp folders
+z-*/
