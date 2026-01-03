@@ -23,6 +23,7 @@ cp .env.example .env.local
 #   ANTHROPIC_API_KEY
 #   OPENAI_API_KEY
 #   INTERCOM_API_KEY
+#   DATABASE_URL (PostgreSQL connection string)
 
 # Run evaluation
 python -m src.core.main --customer intercom --eval pii_leak
@@ -59,27 +60,77 @@ After running this command prek should run on every commit.
 ## Directory Structure
 
 ```
-aiuc-core/
+local-ucai/
 ├── src/
-│   ├── core/
-│   │   ├── adapters/       # Platform adapters (Intercom, extensible)
-│   │   ├── agent/          # RedTeamer adversarial agent
-│   │   ├── environments/   # Single/multi-turn execution
-│   │   ├── grading/        # Verdict-based grading system
-│   │   ├── loader/         # Config loading & spec builder
-│   │   ├── models/         # Pydantic data models
-│   │   ├── parsers/        # XML parsing utilities
-│   │   ├── prompts/        # Jinja2 prompt templates
-│   │   ├── tracking/       # Conversation state tracking
-│   │   └── utils/          # Logging utilities
-│   └── examples/
-│       └── config/
-│           ├── customers/  # Customer configs (intercom.yaml)
-│           └── evals/      # Eval configs (pii_leak.yaml)
-├── .claude/                # Design documentation
-├── logs/                   # Execution logs
-├── .verdict/               # Verdict pipeline logs
-└── test_intercom.py        # Integration tests
+│   ├── core/                      # Core evaluation engine
+│   │   ├── adapters/              # Platform integrations (Intercom, Test)
+│   │   │   ├── base.py            # Abstract BaseAdapter interface
+│   │   │   ├── factory.py         # AdapterFactory for creating adapters
+│   │   │   ├── intercom.py        # Intercom platform adapter
+│   │   │   └── test.py            # Test adapter for development
+│   │   ├── agent/                 # Red-teaming agent
+│   │   │   └── red_teamer.py      # RedTeamer class - generates adversarial responses
+│   │   ├── environments/          # Evaluation execution
+│   │   │   ├── base.py            # BaseEnvironment abstract class
+│   │   │   ├── single_turn.py     # Single-turn evaluation
+│   │   │   ├── multi_turn.py      # Multi-turn adversarial evaluation
+│   │   │   └── callbacks.py       # Event/callback system
+│   │   ├── grading/               # LLM-based grading
+│   │   │   └── grader.py          # Verdict-based grader
+│   │   ├── builders/              # Specification building
+│   │   │   └── spec_builder.py    # Builds evaluation specs
+│   │   ├── models/                # Pydantic data models
+│   │   │   ├── specification.py   # Spec model (platform, risks, attacks)
+│   │   │   ├── state.py           # State and Turn models
+│   │   │   └── grade.py           # Grade result model
+│   │   ├── parsers/               # XML/output parsing
+│   │   ├── prompts/               # Jinja2 prompt templates
+│   │   ├── refusal/               # Refusal detection
+│   │   ├── tracking/              # Conversation tracking
+│   │   ├── transforms/            # Text transforms
+│   │   └── utils/                 # Logging utilities
+│   │
+│   ├── backend/                   # FastAPI REST API
+│   │   ├── api/                   # API endpoints
+│   │   │   ├── agent_configs.py   # Agent configuration CRUD
+│   │   │   ├── attacks.py         # Attack taxonomy endpoints
+│   │   │   ├── batches.py         # Batch management + Modal workers
+│   │   │   ├── configs.py         # Config CRUD
+│   │   │   ├── contexts.py        # Deployment context endpoints
+│   │   │   ├── conversations.py   # Conversation history
+│   │   │   ├── evals.py           # Evaluation management
+│   │   │   ├── grades.py          # Grade result endpoints
+│   │   │   ├── playground.py      # Interactive testing
+│   │   │   ├── products.py        # Product endpoints
+│   │   │   ├── prompts.py         # Prompt template management
+│   │   │   ├── risks.py           # Risk taxonomy endpoints
+│   │   │   ├── rubrics.py         # Rubric endpoints
+│   │   │   └── templates.py       # Template management
+│   │   ├── services/              # Business logic
+│   │   │   ├── batch_service.py   # Batch orchestration
+│   │   │   ├── eval_service.py    # Evaluation execution
+│   │   │   ├── playground_service.py
+│   │   │   └── taxonomy_service.py
+│   │   ├── workers/               # Modal worker functions
+│   │   │   └── eval_workers.py    # Async eval workers
+│   │   ├── app.py                 # FastAPI app initialization
+│   │   ├── modal.py               # Modal app definitions
+│   │   ├── schemas.py             # Request/response schemas
+│   │   └── exceptions.py          # Custom exceptions
+│   │
+│   └── database/                  # Database layer
+│       ├── models.py              # SQLAlchemy ORM models
+│       ├── enums.py               # Database enums
+│       └── config.py              # Connection management
+│
+├── scripts/
+│   └── populate_database.py       # Database initialization
+├── tests/                         # Test suite
+├── docs/                          # Documentation
+├── .github/workflows/             # CI/CD (pytest, ruff, type-check)
+├── pyproject.toml                 # Python project config (uv)
+├── .pre-commit-config.yaml        # Pre-commit hooks
+└── .env.example                   # Environment template
 ```
 
 ## Configuration
@@ -142,14 +193,70 @@ Rubrics are customizable per evaluation in the YAML config.
 
 ## Tech Stack
 
+**Core:**
 - **Python 3.13+** - Modern async/await patterns
 - **Claude Sonnet 4.5** - Red-teaming agent (Anthropic)
 - **GPT-4o** - Grading via Verdict (OpenAI)
 - **Verdict** - LLM-as-a-judge pipeline (Haize Labs)
 - **Jinja2** - Prompt templating
 - **Pydantic** - Data validation
+
+**Backend:**
+- **FastAPI** - REST API framework
+- **Modal** - Serverless deployment and worker orchestration
+- **SQLAlchemy 2.0+** - ORM with async support
+- **PostgreSQL** - Primary database
+- **Alembic** - Database migrations
+
+**HTTP & Config:**
 - **HTTPX** - Async HTTP client
 - **YAML** - Configuration format
+
+## Backend API
+
+The FastAPI backend provides a REST API for managing evaluations, batches, and taxonomies.
+
+**Key Endpoints:**
+- `/api/batches` - Create and manage evaluation batches
+- `/api/evals` - Individual evaluation CRUD
+- `/api/risks` - Risk taxonomy (L1/L2/L3 hierarchy)
+- `/api/attacks` - Attack taxonomy (L1/L2/L3 hierarchy)
+- `/api/configs` - Evaluation configurations
+- `/api/grades` - Grading results
+- `/api/playground` - Interactive testing
+
+**Running the API:**
+```bash
+uvicorn src.backend.app:app --reload
+```
+
+**Modal Deployment:**
+```bash
+modal deploy src/backend/modal.py
+```
+
+## Database
+
+SQLAlchemy ORM with hierarchical taxonomy models:
+
+**Core Models:**
+- `Risk` (L1Risk, L2Risk, L3Risk) - Hierarchical safety/security concerns
+- `Attack` (L1Attack, L2Attack, L3Attack) - Attack strategies by intent level
+- `Config` - Evaluation configurations linking contexts, risks, attacks
+- `Batch` - Groups multiple evaluations with status tracking
+- `Eval` - Individual evaluation runs with grading
+- `Grade` - Grading results with severity (PASS, P0-P4)
+
+**Status Enums:**
+- `BatchStatus`: PENDING, RUNNING, COMPLETED, FAILED, CANCELLED
+- `EvalStatus`: PENDING, RUNNING, COMPLETED, GRADED, FAILED
+- `Severity`: PASS, P0, P1, P2, P3, P4
+
+**Initialize Database:**
+```bash
+export PYTHONPATH=$(pwd)
+uv run python scripts/populate_database.py
+```
 
 ## Key Concepts
 
@@ -202,5 +309,3 @@ GRADING
 ---
 
 **Internal Project** - AI Underwriting Company
-# local-ucai
-# local-ucai
